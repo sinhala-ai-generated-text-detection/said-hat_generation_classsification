@@ -1,0 +1,115 @@
+# Sinhala AI-text generation config
+# Shared by the whole team — each member runs `generate.py --domain <d> --model <m>`
+# for the domain x model combination they've claimed on the tracking sheet.
+#
+# Scope note: this config targets binary classification (Task 1) only. Mode B
+# (continuation, mixed human/AI documents) is out of scope for now — it exists solely
+# to feed Task 2 (boundary detection), which isn't being built yet.
+
+seed: 42  # fixed seed so source-item sampling is deterministic and identical across resumed runs
+
+pilot:
+  samples_per_combination: 2  # items tested per (domain, mode, variant, model) in run_pilot.py
+
+# Each model routes through its own provider's native API — see call_model() in
+# generate.py. Only qwen2.5-72b goes through OpenRouter (needs OPENROUTER_API_KEY);
+# gpt-4o and claude-sonnet-5 call OpenAI/Anthropic directly (need OPENAI_API_KEY /
+# ANTHROPIC_API_KEY respectively).
+models:
+  gpt-4o:
+    provider: openai
+    model_id: gpt-4o
+  qwen2.5-72b:
+    provider: openrouter
+    model_id: qwen/qwen-2.5-72b-instruct
+  claude-sonnet-5:
+    provider: anthropic
+    model_id: claude-sonnet-5
+
+# target_count is the domain-wide total (500). Each mode's "count" below is the number
+# of unique source items sampled for that mode; the counts under a domain must sum to
+# that domain's target_count — generate.py and run_pilot.py should assert this on
+# startup and fail loudly if a config edit breaks the sum.
+#
+# "num_variants" must equal the number of prompt strings listed for that mode in the
+# prompts section below — generate.py asserts this too, so an edit to one without the
+# other fails fast instead of silently using the wrong variant count.
+domains:
+  news:
+    source_file: source_data/nsina/news.json
+    target_count: 500
+    modes:
+      mode_a:            # title -> full article (open-ended)
+        count: 300
+        num_variants: 2
+      mode_b:             # paraphrase/rewrite of the full human article
+        count: 200
+        num_variants: 2
+
+  wikipedia:
+    source_file: source_data/wikipedia-monthly/wikipedia.parquet
+    target_count: 500
+    modes:
+      mode_a:            # title -> full article (open-ended)
+        count: 300
+        num_variants: 2
+      mode_b:             # paraphrase of the full human article
+        count: 200
+        num_variants: 2
+
+  social_media:
+    source_file: source_data/facebookdecadecorpora/facebook.csv
+    target_count: 500
+    modes:
+      mode_b:             # paraphrase of caption — only mode used, no title field to condition on
+        count: 500
+        num_variants: 2
+
+  qa:
+    source_file: source_data/q&a/q&a.xlsx
+    target_count: 500
+    modes:
+      mode_a:            # answer the question cold, no reference answer given
+        count: 300
+        num_variants: 2
+      mode_b:             # rephrase the known human_answer in a different style
+        count: 200
+        num_variants: 2
+
+# Prompt templates, nested by domain then mode. Each mode holds a LIST of variant
+# templates (index 0, 1, 2, ...) so run_pilot.py can test alternate phrasings side by
+# side before the team commits to one. generate.py always uses variant index 0 for
+# full-scale production runs — once the pilot identifies a winning phrasing for a
+# mode, move it to index 0 here.
+#
+# Available placeholders (use only the ones relevant to each mode):
+#   {title} {human_text} {caption} {question} {human_answer}
+prompts:
+  news:
+    mode_a:
+      - "පහත සිරැසිය සඳහා පුවත්පත් ලිපියක් සිංහලෙන් ලියන්න. අවම වශයෙන් වචන 250ක් තිබිය යුතුය. සිරැසිය: {title}"
+      - "{title} යන පුවත පිළිබඳ වාර්තාවක්, වෘත්තීය මාධ්‍යවේදියෙකුගේ ශෛලියෙන් ලියන්න."
+    mode_b:
+      - "පහත පුවත්පත් ලිපිය එහි අර්ථය වෙනස් නොකර, ඔබේම වචනවලින් නැවත ලියන්න: {human_text}"
+      - "පහත පුවත්පත් ලිපිය කෙටියෙන් හා සරලව නැවත ලියන්න, එහි ප්‍රධාන කරුණු වෙනස් නොකර: {human_text}"
+
+  wikipedia:
+    mode_a:
+      - "\"{title}\" යන මාතෘකාව සඳහා විශ්වකෝශ ලිපියක් සිංහලෙන් ලියන්න. එය අවම වශයෙන් වචන 250කින් සමන්විත විය යුතුය."
+      - "\"{title}\" මාතෘකාව සාමාන්‍ය පාඨකයෙකුට තේරුම් ගත හැකි සරල ආකාරයෙන් විස්තර කරන්න."
+    mode_b:
+      - "පහත විශ්වකෝශ ලිපිය එහි අර්ථය සුරකින්ම, ඔබේම වචනවලින් නැවත ලියන්න: {human_text}"
+      - "පහත විශ්වකෝශ ලිපිය සාමාන්‍ය පාඨකයෙකුට වඩාත් තේරුම් ගත හැකි ආකාරයෙන් නැවත ලියන්න: {human_text}"
+
+  social_media:
+    mode_b:
+      - "පහත සමාජ මාධ්‍ය සටහන එහි අර්ථය සුරකිමින්, වෙනස් වචන හා ශෛලියකින් නැවත ලියන්න: {caption}"
+      - "මේ සටහන වෙනත් කෙනෙක් ලියනවා වගේ, වචන වෙනස් කරලා නැවත ලියන්න: {caption}"
+
+  qa:
+    mode_a:
+      - "පහත ප්‍රශ්නයට පිළිතුරු දෙන්න: {question}"
+      - "{question} — මේ ගැන ඔබේ දැනුමෙන් විස්තර කරන්න."
+    mode_b:
+      - "පහත පිළිතුර එහි අර්ථය වෙනස් නොකර, වෙනස් වචනවලින් නැවත ලියන්න: {human_answer}"
+      - "පහත පිළිතුර වඩාත් විස්තරාත්මකව, වෙනස් වචනවලින් ලියන්න: {human_answer}"

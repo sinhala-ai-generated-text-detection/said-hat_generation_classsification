@@ -1,0 +1,102 @@
+# SinhalaAIDetection — AI text generation pipeline
+
+Generates Sinhala AI text samples across 4 domains (`news`, `wikipedia`, `social_media`, `qa`)
+using 3 models via [OpenRouter](https://openrouter.ai), to build a Sinhala AI-vs-human text
+detection dataset. Each domain x model combination is run independently by one team member.
+
+## Setup
+
+1. Install dependencies (Python 3.10+ recommended):
+
+   ```
+   pip install -r requirements.txt
+   ```
+
+2. Copy `.env.example` to `.env` and add your API keys:
+
+   ```
+   cp .env.example .env
+   # then edit .env and set:
+   #   OPENROUTER_API_KEY=sk-or-...   (used by qwen2.5-72b)
+   #   OPENAI_API_KEY=sk-...          (used by gpt-4o, called directly)
+   #   ANTHROPIC_API_KEY=sk-ant-...   (used by claude-sonnet-5, called directly)
+   ```
+
+3. Add your source data files to `source_data/` — see `config/generation_config.yaml` for the
+   expected filename per domain. `.csv`, `.json`, and `.parquet` are all supported.
+
+## Before you run anything
+
+**Claim your domain x model combination on the shared tracking sheet first:**
+[TRACKING SHEET LINK — TODO: paste link here]
+
+This avoids two people generating the same combination twice and burning API budget on
+duplicate work. Mark your row as "in progress" before running, and "done" once `generate.py`
+finishes.
+
+## Running the fluency/prompt pilot
+
+Before starting full-scale generation, run:
+
+```
+python run_pilot.py
+```
+
+This tests every (domain, mode, prompt variant, model) combination from
+`generation_config.yaml` against a small number of source items (`pilot.samples_per_combination`
+in the config, default 2 — override with `--samples-per-combination`), and writes every result
+to `logs/pilot_results.jsonl`. It does **not** touch the production `outputs/` files.
+
+Review `logs/pilot_results.jsonl` manually (or knock together a quick review notebook) for each
+prompt/model combination — check that the Sinhala reads fluently and that each mode is actually
+doing what it's supposed to (e.g. `mode_b` continuing from `human_prefix` rather than ignoring
+it). Once a variant looks right for a given mode, move its template to index 0 in
+`config/generation_config.yaml`'s `prompts` section — `generate.py` always uses variant 0 for
+full-scale runs. Only move on to full-scale `generate.py` runs once the pilot results look
+acceptable.
+
+## Running generation
+
+```
+python generate.py --domain news --model qwen2.5-72b
+```
+
+- `--domain` — one of `news`, `wikipedia`, `social_media`, `qa` (from `generation_config.yaml`)
+- `--model` — one of `gpt-4o`, `qwen2.5-72b`, `claude-sonnet-5` (short names from the config)
+
+Output is written incrementally to `outputs/{domain}__{model}.jsonl`, one JSON record per
+line, flushed after every successful API call. Progress is also logged to
+`logs/progress_tracker.csv`.
+
+### Resuming an interrupted run
+
+Just re-run the same command. `generate.py` reads whatever's already in the output file and
+skips any (source item, mode, prompt) combination that's already been generated — no need to
+track where you left off manually, and no risk of re-billing finished items.
+
+### Cost estimates
+
+The script prints a running estimated cost (from a hardcoded per-token pricing table in
+`generate.py`) as it goes, plus a total at the end. These are approximate — check
+https://openrouter.ai/models for current rates if you need exact figures.
+
+## After everyone's done
+
+Once every domain x model combination on the tracking sheet is marked complete, run:
+
+```
+python merge_outputs.py
+```
+
+This validates every record in `outputs/*.jsonl`, concatenates them into
+`outputs/merged_dataset.jsonl`, prints a domain x model x mode count table so gaps are easy to
+spot, and flags (without removing) any exact-duplicate `text` values for manual review.
+
+## Filling in prompts
+
+Each mode under `prompts:` in `config/generation_config.yaml` holds a **list** of prompt
+variants (index 0, 1, 2, ...), so `run_pilot.py` can compare alternate phrasings side by side.
+Replace each `TODO_FILL_IN_PROMPT` string with a finalized Sinhala prompt template. `generate.py`
+only requires variant 0 (the production variant) to be filled in per mode — `run_pilot.py`
+simply skips any variant still marked TODO. Available placeholders: `{title}`, `{human_text}`,
+`{caption}`, `{question}`, `{human_answer}`, `{human_prefix}`.
