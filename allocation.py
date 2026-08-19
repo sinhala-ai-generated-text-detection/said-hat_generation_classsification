@@ -16,6 +16,8 @@ import json
 import random
 from pathlib import Path
 
+from filtering import filter_source_items
+
 BASE_DIR = Path(__file__).resolve().parent
 ALLOCATIONS_DIR = BASE_DIR / "config" / "mode_allocations"
 
@@ -116,6 +118,7 @@ def get_or_create_allocation(domain: str, config: dict) -> dict:
 
     df = load_source_data(BASE_DIR / domain_cfg["source_file"], domain=domain)
     source_items = df.to_dict("records")
+    source_items = filter_source_items(source_items, domain)  # currently a no-op, see filtering.py TODO
 
     allocation = allocate_source_items(source_items, domain_cfg["modes"], seed)
     verify_no_overlap(allocation)
