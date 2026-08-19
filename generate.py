@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generate Sinhala AI text samples for one domain x model combination via OpenRouter.
+"""Generate Sinhala AI text samples for one domain x model combination via Amazon Bedrock.
 
 Usage:
-    python generate.py --domain news --model qwen2.5-72b
+    python generate.py --domain news --model gemma-4-31b-it
 
 Safe to interrupt and re-run: already-generated (source_id, mode, prompt_id) combinations
 in the output JSONL are skipped, so a killed run just picks up where it left off.
@@ -14,13 +14,14 @@ import fcntl
 import json
 import os
 import sys
-import threading
 import time
 from pathlib import Path
 
+import boto3
 import pandas as pd
-import requests
 import yaml
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 from tqdm import tqdm
 
@@ -32,11 +33,14 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 LOGS_DIR = BASE_DIR / "logs"
 PROGRESS_CSV = LOGS_DIR / "progress_tracker.csv"
 PROGRESS_LOCK = LOGS_DIR / "progress_tracker.lock"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
-ANTHROPIC_MAX_TOKENS = 4096  # Messages API requires an explicit cap; generous for ~250-500 word articles
+DEFAULT_BEDROCK_REGION = "us-east-1"
+BEDROCK_MAX_TOKENS = 4096  # Converse API requires an explicit cap; generous for ~250-500 word articles
+BEDROCK_RETRYABLE_ERROR_CODES = {
+    "ThrottlingException",
+    "ServiceUnavailableException",
+    "InternalServerException",
+    "ModelTimeoutException",
+}
 
 PLACEHOLDER_KEYS = ["title", "human_text", "caption", "question", "human_answer", "human_prefix"]
 
@@ -52,10 +56,12 @@ COLUMN_RENAMES = {
 PROGRESS_FIELDS = ["domain", "model", "completed_count", "target_count", "status", "last_updated"]
 
 # Approximate USD-per-token pricing (input, output). Hardcoded for a quick running-cost
-# estimate only — verify against https://openrouter.ai/models before trusting for real billing.
+# estimate only — verify against https://aws.amazon.com/bedrock/pricing/ before trusting
+# for real billing. TODO: these are stale (pre-Bedrock-migration) rates for the current
+# model_short keys — recheck once the model roster in generation_config.yaml is updated.
 PRICING = {
     "gpt-4o": {"input": 0.0000025, "output": 0.00001},
-    "qwen2.5-72b": {"input": 0.00000036, "output": 0.0000004},
+    "gemma-4-31b-it": {"input": 0.00000008, "output": 0.00000035},
     "claude-sonnet-5": {"input": 0.000002, "output": 0.00001},
 }
 
@@ -69,23 +75,21 @@ def load_config():
         return yaml.safe_load(f)
 
 
-PROVIDER_ENV_VARS = {
-    "openrouter": "OPENROUTER_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-}
-
-
-def load_api_key(provider):
+def get_bedrock_client(config):
+    """boto3 resolves credentials via its default chain (env vars, .env-loaded env
+    vars, ~/.aws/credentials, an assumed role, etc.) — no manual key plumbing needed
+    the way the old per-provider API keys required."""
     load_dotenv(BASE_DIR / ".env")
-    env_var = PROVIDER_ENV_VARS[provider]
-    key = os.environ.get(env_var)
-    if not key:
+    region = config.get("bedrock", {}).get("region") or os.environ.get("AWS_REGION", DEFAULT_BEDROCK_REGION)
+    session = boto3.Session()
+    if session.get_credentials() is None:
         sys.exit(
-            f"ERROR: {env_var} not set.\n"
-            "Copy .env.example to .env in the project root and add your key."
+            "ERROR: no AWS credentials found.\n"
+            "Copy .env.example to .env in the project root and set AWS_ACCESS_KEY_ID / "
+            "AWS_SECRET_ACCESS_KEY (or configure an AWS profile / IAM role)."
         )
-    return key
+    boto_config = BotoConfig(connect_timeout=15, read_timeout=90, retries={"max_attempts": 0})
+    return session.client("bedrock-runtime", region_name=region, config=boto_config)
 
 
 def assert_prompts_filled(config, domain):
@@ -103,6 +107,15 @@ def assert_prompts_filled(config, domain):
                     "generation_config.yaml is still a TODO.\n"
                     "Fill in the finalized Sinhala prompt template before running."
                 )
+
+
+def assert_model_id_filled(model_short, model_cfg):
+    """Fail fast rather than burning a Bedrock call on a TODO placeholder model_id."""
+    if "TODO" in model_cfg["model_id"]:
+        sys.exit(
+            f"ERROR: models.{model_short}.model_id in generation_config.yaml is still a TODO.\n"
+            "Fill in a real Bedrock model ID (or cross-region inference profile ID) before running."
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -194,137 +207,36 @@ def build_prompt(template, item):
     return template.format(**values)
 
 
-def _post_with_hard_timeout(url, headers, payload, timeout):
-    """requests' timeout is an idle-read timeout, not a wall-clock deadline: some
-    providers (e.g. OpenRouter backends) send periodic keep-alive bytes on slow
-    completions that keep resetting it, so a stuck request can hang indefinitely
-    even with timeout=N set. Run the call in a daemon thread and bound it with a
-    real deadline instead; a thread left behind by a timed-out call is abandoned
-    (daemon=True keeps it from blocking process exit)."""
-    result = {}
-
-    def target():
-        try:
-            result["response"] = requests.post(url, headers=headers, json=payload, timeout=timeout)
-        except Exception as e:
-            result["error"] = e
-
-    thread = threading.Thread(target=target, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout)
-    if thread.is_alive():
-        raise requests.exceptions.Timeout(
-            f"hard wall-clock timeout of {timeout}s exceeded (provider stopped responding)"
-        )
-    if "error" in result:
-        raise result["error"]
-    return result["response"]
-
-
-def _call_chat_completions(url, headers, model_id, prompt, provider_label, max_retries=3, timeout=90):
-    """Shared retry/parsing logic for OpenAI-Chat-Completions-shaped APIs
-    (OpenRouter and OpenAI itself both speak this format)."""
-    payload = {"model": model_id, "messages": [{"role": "user", "content": prompt}]}
-
+def call_bedrock(client, model_id, prompt, max_retries=3):
+    """Every model (whichever provider hosts it on Bedrock — Anthropic, Meta, Amazon,
+    Mistral, ...) is called through the same bedrock-runtime Converse API, so there's
+    one call path instead of one per provider's own HTTP format."""
     for attempt in range(1, max_retries + 1):
         try:
-            resp = _post_with_hard_timeout(url, headers, payload, timeout)
-        except requests.RequestException:
-            if attempt == max_retries:
-                raise
-            time.sleep(2 ** attempt)
-            continue
+            resp = client.converse(
+                modelId=model_id,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": BEDROCK_MAX_TOKENS},
+            )
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code in BEDROCK_RETRYABLE_ERROR_CODES and attempt < max_retries:
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(f"Bedrock error ({error_code}) after {attempt} attempt(s): {e}") from e
 
-        if resp.status_code == 200:
-            data = resp.json()
-            text = data["choices"][0]["message"]["content"].strip()
-            usage = data.get("usage", {})
-            return text, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
-
-        if resp.status_code == 429 or resp.status_code >= 500:
-            if attempt == max_retries:
-                raise RuntimeError(f"{provider_label} error {resp.status_code} after {max_retries} attempts: {resp.text}")
-            time.sleep(2 ** attempt)
-            continue
-
-        # Non-retryable client error (bad request, auth, etc.) — fail immediately.
-        raise RuntimeError(f"{provider_label} error {resp.status_code}: {resp.text}")
+        # Some Bedrock models (e.g. Claude with extended thinking) can return multiple
+        # content blocks — pick the text block(s) out rather than assuming content[0].
+        blocks = resp["output"]["message"]["content"]
+        text = "".join(block["text"] for block in blocks if "text" in block).strip()
+        usage = resp.get("usage", {})
+        return text, usage.get("inputTokens", 0), usage.get("outputTokens", 0)
 
     raise RuntimeError("unreachable")  # pragma: no cover
 
 
-def call_openrouter(api_key, model_id, prompt, max_retries=3, timeout=90):
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://localhost",
-        "X-Title": "sinhala-ai-detection-generation",
-    }
-    return _call_chat_completions(OPENROUTER_URL, headers, model_id, prompt, "OpenRouter", max_retries, timeout)
-
-
-def call_openai(api_key, model_id, prompt, max_retries=3, timeout=90):
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    return _call_chat_completions(OPENAI_URL, headers, model_id, prompt, "OpenAI", max_retries, timeout)
-
-
-def call_anthropic(api_key, model_id, prompt, max_retries=3, timeout=90):
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": ANTHROPIC_VERSION,
-        "content-type": "application/json",
-    }
-    payload = {
-        "model": model_id,
-        "max_tokens": ANTHROPIC_MAX_TOKENS,
-        "thinking": {"type": "disabled"},
-        "messages": [{"role": "user", "content": prompt}],
-    }
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            resp = _post_with_hard_timeout(ANTHROPIC_URL, headers, payload, timeout)
-        except requests.RequestException:
-            if attempt == max_retries:
-                raise
-            time.sleep(2 ** attempt)
-            continue
-
-        if resp.status_code == 200:
-            data = resp.json()
-            # claude-sonnet-5 has extended thinking on by default: content[0] can be a
-            # "thinking" block, with the actual reply in a later "text" block — so pick
-            # the text block out explicitly rather than assuming content[0].
-            text = "".join(
-                block["text"] for block in data["content"] if block.get("type") == "text"
-            ).strip()
-            usage = data.get("usage", {})
-            return text, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-
-        if resp.status_code == 429 or resp.status_code >= 500:
-            if attempt == max_retries:
-                raise RuntimeError(f"Anthropic error {resp.status_code} after {max_retries} attempts: {resp.text}")
-            time.sleep(2 ** attempt)
-            continue
-
-        # Non-retryable client error (bad request, auth, etc.) — fail immediately.
-        raise RuntimeError(f"Anthropic error {resp.status_code}: {resp.text}")
-
-    raise RuntimeError("unreachable")  # pragma: no cover
-
-
-CALL_FUNCS = {
-    "openrouter": call_openrouter,
-    "anthropic": call_anthropic,
-    "openai": call_openai,
-}
-
-
-def call_model(provider, api_key, model_id, prompt):
-    return CALL_FUNCS[provider](api_key, model_id, prompt)
+def call_model(client, model_id, prompt):
+    return call_bedrock(client, model_id, prompt)
 
 
 def estimate_cost(model_short, input_tokens, output_tokens):
@@ -401,9 +313,9 @@ def run(domain, model_short):
     assert_prompts_filled(config, domain)
 
     model_cfg = config["models"][model_short]
-    provider = model_cfg["provider"]
+    assert_model_id_filled(model_short, model_cfg)
     model_id = model_cfg["model_id"]
-    api_key = load_api_key(provider)
+    client = get_bedrock_client(config)
     domain_cfg = config["domains"][domain]
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -431,7 +343,7 @@ def run(domain, model_short):
 
                 prompt = build_prompt(template, item)
                 try:
-                    text, in_tok, out_tok = call_model(provider, api_key, model_id, prompt)
+                    text, in_tok, out_tok = call_model(client, model_id, prompt)
                 except Exception as e:
                     pbar.write(f"  FAILED source_id={source_id} mode={mode}: {e}")
                     continue  # not marked complete — will be retried on the next run
@@ -462,7 +374,7 @@ def run(domain, model_short):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate Sinhala AI text via OpenRouter.")
+    parser = argparse.ArgumentParser(description="Generate Sinhala AI text via Amazon Bedrock.")
     parser.add_argument("--domain", required=True, help="Domain key from generation_config.yaml")
     parser.add_argument("--model", required=True, help="Model short name from generation_config.yaml")
     args = parser.parse_args()

@@ -1,8 +1,9 @@
 # SinhalaAIDetection — AI text generation pipeline
 
 Generates Sinhala AI text samples across 4 domains (`news`, `wikipedia`, `social_media`, `qa`)
-using 3 models via [OpenRouter](https://openrouter.ai), to build a Sinhala AI-vs-human text
-detection dataset. Each domain x model combination is run independently by one team member.
+using 3 models via [Amazon Bedrock](https://aws.amazon.com/bedrock/), to build a Sinhala
+AI-vs-human text detection dataset. Each domain x model combination is run independently by
+one team member.
 
 ## Setup
 
@@ -12,15 +13,20 @@ detection dataset. Each domain x model combination is run independently by one t
    pip install -r requirements.txt
    ```
 
-2. Copy `.env.example` to `.env` and add your API keys:
+2. Copy `.env.example` to `.env` and add your AWS credentials:
 
    ```
    cp .env.example .env
    # then edit .env and set:
-   #   OPENROUTER_API_KEY=sk-or-...   (used by qwen2.5-72b)
-   #   OPENAI_API_KEY=sk-...          (used by gpt-4o, called directly)
-   #   ANTHROPIC_API_KEY=sk-ant-...   (used by claude-sonnet-5, called directly)
+   #   AWS_ACCESS_KEY_ID=...
+   #   AWS_SECRET_ACCESS_KEY=...
+   #   AWS_REGION=us-east-1   (a region where your account has Bedrock model access)
    ```
+
+   Already using an AWS profile or SSO? Leave the keys unset — boto3 falls back to its
+   default credential chain (profile, IAM role, etc.). Either way, the account/role needs
+   `bedrock:InvokeModel` permission, and each model must be individually enabled for it in
+   the [Bedrock model access console](https://console.aws.amazon.com/bedrock/home#/modelaccess).
 
 3. Add your source data files to `source_data/` — see `config/generation_config.yaml` for the
    expected filename per domain. `.csv`, `.json`, and `.parquet` are all supported.
@@ -42,10 +48,19 @@ Before starting full-scale generation, run:
 python run_pilot.py
 ```
 
-This tests every (domain, mode, prompt variant, model) combination from
-`generation_config.yaml` against a small number of source items (`pilot.samples_per_combination`
-in the config, default 2 — override with `--samples-per-combination`), and writes every result
-to `logs/pilot_results.jsonl`. It does **not** touch the production `outputs/` files.
+For each domain, this draws a small number of random source items (`pilot.samples_per_domain`
+in the config, default 2 — override with `--samples-per-domain`) straight from that domain's
+source file, and runs EACH sampled item through EVERY mode x prompt-variant template for that
+domain, against every model — so you're comparing phrasings on identical input rather than on
+different items. Results are written to `logs/pilot_results.jsonl`. It does **not** touch the
+production `outputs/` files, and re-running resamples fresh items each time (pass `--seed` for a
+reproducible sample, e.g. to compare models on the exact same items).
+
+To iterate on one domain's prompts at a time instead of testing everything:
+
+```
+python run_pilot.py --domain news
+```
 
 Review `logs/pilot_results.jsonl` manually (or knock together a quick review notebook) for each
 prompt/model combination — check that the Sinhala reads fluently and that each mode is actually
@@ -58,11 +73,16 @@ acceptable.
 ## Running generation
 
 ```
-python generate.py --domain news --model qwen2.5-72b
+python generate.py --domain news --model gemma-4-31b-it
 ```
 
 - `--domain` — one of `news`, `wikipedia`, `social_media`, `qa` (from `generation_config.yaml`)
-- `--model` — one of `gpt-4o`, `qwen2.5-72b`, `claude-sonnet-5` (short names from the config)
+- `--model` — one of `gpt-4o`, `gemma-4-31b-it`, `claude-sonnet-5` (short names from the config)
+
+Each model's `model_id` in `config/generation_config.yaml` must be a real Bedrock model ID
+(or cross-region inference profile ID) enabled for your AWS account — `generate.py` and
+`run_pilot.py` both fail fast (or skip, for the pilot) on the `TODO_BEDROCK_MODEL_ID`
+placeholders until those are filled in.
 
 Output is written incrementally to `outputs/{domain}__{model}.jsonl`, one JSON record per
 line, flushed after every successful API call. Progress is also logged to
@@ -78,7 +98,7 @@ track where you left off manually, and no risk of re-billing finished items.
 
 The script prints a running estimated cost (from a hardcoded per-token pricing table in
 `generate.py`) as it goes, plus a total at the end. These are approximate — check
-https://openrouter.ai/models for current rates if you need exact figures.
+https://aws.amazon.com/bedrock/pricing/ for current rates if you need exact figures.
 
 ## After everyone's done
 

@@ -1,29 +1,36 @@
 #!/usr/bin/env python3
-"""Small-scale pilot across every domain x mode x prompt-variant x model combination.
+"""Small-scale pilot for reviewing prompt variants, domain by domain.
 
-Run this BEFORE any full-scale generate.py run: it samples a handful of items per
-combination, calls each prompt variant against each model, and writes everything to
-logs/pilot_results.jsonl for manual fluency/mode-correctness review. It never touches
-the production outputs/{domain}__{model}.jsonl files.
+Run this BEFORE any full-scale generate.py run. For each domain (or just the one named
+by --domain), it draws a handful of random source items straight from that domain's
+source file and runs EACH item through EVERY mode x prompt-variant template for that
+domain, against every model. Testing the same item across variants (rather than a
+different item per variant) is what lets you actually judge whether one phrasing reads
+better than another. This is independent of generate.py's production allocation — the
+pilot is for prompt review, not for reserving items for the real run — so it never
+touches outputs/{domain}__{model}.jsonl and re-running can resample fresh items.
 
 Usage:
     python run_pilot.py
-    python run_pilot.py --samples-per-combination 3
+    python run_pilot.py --domain news
+    python run_pilot.py --domain news --samples-per-domain 3
+    python run_pilot.py --domain news --seed 7   # reproducible sample for comparison runs
 """
 
 import argparse
 import json
+import random
 
 from tqdm import tqdm
 
-from allocation import get_or_create_allocation
 from generate import (
     BASE_DIR,
     build_prompt,
     call_model,
     estimate_cost,
-    load_api_key,
+    get_bedrock_client,
     load_config,
+    load_source_data,
 )
 
 PILOT_OUTPUT = BASE_DIR / "logs" / "pilot_results.jsonl"
@@ -36,93 +43,132 @@ def append_pilot_result(record):
         f.flush()
 
 
-def run_pilot(config, samples_per_combination):
-    api_keys = {}  # provider -> key, loaded lazily so unused providers don't need a key set
+def sample_domain_items(domain, domain_cfg, n, rng):
+    """n random source items straight from `domain`'s source file (not the production
+    allocation), so the same item can be reused across every mode/variant template."""
+    df = load_source_data(BASE_DIR / domain_cfg["source_file"], domain=domain)
+    items = df.to_dict("records")
+    return rng.sample(items, min(n, len(items)))
+
+
+def filled_variants(config, domain):
+    """(mode, variant_index, template) for every non-TODO prompt variant in `domain`,
+    plus a count of variants skipped for still being a TODO."""
+    filled = []
+    skipped = 0
+    for mode, variants in config["prompts"][domain].items():
+        for variant_index, template in enumerate(variants):
+            if "TODO_FILL_IN_PROMPT" in template:
+                print(f"SKIP {domain}/{mode}/variant{variant_index}: prompt still a TODO")
+                skipped += 1
+                continue
+            filled.append((mode, variant_index, template))
+    return filled, skipped
+
+
+def filled_models(config):
+    """(model_short, model_id) for every model whose model_id isn't still a Bedrock
+    TODO placeholder, plus a count of models skipped for that reason."""
+    filled = []
+    skipped = 0
+    for model_short, model_cfg in config["models"].items():
+        if "TODO" in model_cfg["model_id"]:
+            print(f"SKIP model {model_short}: model_id still a TODO")
+            skipped += 1
+            continue
+        filled.append((model_short, model_cfg["model_id"]))
+    return filled, skipped
+
+
+def run_pilot(config, samples_per_domain, only_domain=None, seed=None):
+    if only_domain and only_domain not in config["domains"]:
+        raise SystemExit(f"ERROR: unknown domain '{only_domain}'. Choices: {list(config['domains'])}")
+    domains = [only_domain] if only_domain else list(config["domains"])
+
+    rng = random.Random(seed) if seed is not None else random.Random()
+    client = get_bedrock_client(config)  # every model calls the same Bedrock endpoint
+    models, models_skipped = filled_models(config)
 
     total_cost = 0.0
-    combos_tested = 0
+    calls_made = 0
     variants_skipped = 0
 
-    for domain, domain_cfg in config["domains"].items():
-        # Same allocation generate.py will use for full-scale runs — the pilot samples
-        # from its disjoint (mode, variant_index) pools instead of sampling
-        # independently, so pilot results reflect the actual items each mode/variant
-        # will draw from in production.
-        allocation = get_or_create_allocation(domain, config)
+    for domain in domains:
+        domain_cfg = config["domains"][domain]
+        variants, skipped = filled_variants(config, domain)
+        variants_skipped += skipped
+        items = sample_domain_items(domain, domain_cfg, samples_per_domain, rng)
 
-        for mode, variants in config["prompts"][domain].items():
-            for variant_index, template in enumerate(variants):
-                if "TODO_FILL_IN_PROMPT" in template:
-                    print(f"SKIP {domain}/{mode}/variant{variant_index}: prompt still a TODO")
-                    variants_skipped += 1
-                    continue
+        total_calls = len(items) * len(variants) * len(models)
+        pbar = tqdm(total=total_calls, desc=domain)
+        for item in items:
+            source_id = str(item["source_id"])
 
-                # Same slice of the allocation's pool reused for every model below, so
-                # every model is compared against identical items for this variant.
-                group_items = allocation[mode][str(variant_index)]
-                items = group_items[:samples_per_combination]
+            for mode, variant_index, template in variants:
+                prompt = build_prompt(template, item)
 
-                for model_short, model_cfg in config["models"].items():
-                    provider = model_cfg["provider"]
-                    model_id = model_cfg["model_id"]
-                    if provider not in api_keys:
-                        api_keys[provider] = load_api_key(provider)
-                    api_key = api_keys[provider]
+                for model_short, model_id in models:
+                    try:
+                        text, in_tok, out_tok = call_model(client, model_id, prompt)
+                    except Exception as e:
+                        pbar.write(f"  FAILED {domain}/{mode}/v{variant_index}/{model_short}/{source_id}: {e}")
+                        pbar.update(1)
+                        continue
 
-                    label = f"{domain}/{mode}/v{variant_index}/{model_short}"
-                    pbar = tqdm(items, desc=label)
-                    for item in pbar:
-                        source_id = str(item["source_id"])
-                        prompt = build_prompt(template, item)
-                        try:
-                            text, in_tok, out_tok = call_model(provider, api_key, model_id, prompt)
-                        except Exception as e:
-                            pbar.write(f"  FAILED source_id={source_id}: {e}")
-                            continue
+                    record = {
+                        "domain": domain,
+                        "mode": mode,
+                        "variant_index": variant_index,
+                        "model": model_short,
+                        "source_id": source_id,
+                        "generated_text": text,
+                        "input_tokens": in_tok,
+                        "output_tokens": out_tok,
+                    }
+                    append_pilot_result(record)
 
-                        record = {
-                            "domain": domain,
-                            "mode": mode,
-                            "variant_index": variant_index,
-                            "model": model_short,
-                            "source_id": source_id,
-                            "generated_text": text,
-                            "input_tokens": in_tok,
-                            "output_tokens": out_tok,
-                        }
-                        append_pilot_result(record)
-
-                        total_cost += estimate_cost(model_short, in_tok, out_tok)
-                        pbar.set_postfix(cost=f"${total_cost:.4f}")
-
-                    combos_tested += 1
+                    total_cost += estimate_cost(model_short, in_tok, out_tok)
+                    calls_made += 1
+                    pbar.set_postfix(cost=f"${total_cost:.4f}")
+                    pbar.update(1)
 
     print("\nPilot complete.")
-    print(f"(domain, mode, variant, model) combinations tested: {combos_tested}")
+    print(f"Domains tested: {domains}")
+    print(f"Calls made: {calls_made}")
     if variants_skipped:
-        print(f"Prompt variants skipped (still TODO, all models skipped for them): {variants_skipped}")
+        print(f"Prompt variants skipped (still TODO): {variants_skipped}")
+    if models_skipped:
+        print(f"Models skipped (model_id still TODO): {models_skipped}")
     print(f"Estimated total cost: ${total_cost:.4f}")
     print(f"Results written to: {PILOT_OUTPUT}")
 
 
 def main():
     config = load_config()
-    default_samples = config.get("pilot", {}).get("samples_per_combination", 2)
+    default_samples = config.get("pilot", {}).get("samples_per_domain", 2)
 
     parser = argparse.ArgumentParser(
-        description="Run a small fluency/prompt-variant pilot via OpenRouter."
+        description="Run a small prompt-variant pilot, domain by domain, via each model's API."
     )
+    parser.add_argument("--domain", default=None, help="Only pilot this domain (default: all domains)")
     parser.add_argument(
-        "--samples-per-combination",
+        "--samples-per-domain",
         type=int,
         default=default_samples,
         help=(
-            "Source items to sample per (domain, mode, variant, model) combination "
-            f"(default: {default_samples}, from config.pilot.samples_per_combination)"
+            "Random source items sampled per domain; each one is run through every "
+            f"mode x prompt-variant template for that domain (default: {default_samples}, "
+            "from config.pilot.samples_per_domain)"
         ),
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Fix the random sample so re-running produces the same items (default: fresh sample each run)",
+    )
     args = parser.parse_args()
-    run_pilot(config, args.samples_per_combination)
+    run_pilot(config, args.samples_per_domain, only_domain=args.domain, seed=args.seed)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-requests
+boto3
 pandas
 pyyaml
 python-dotenv
