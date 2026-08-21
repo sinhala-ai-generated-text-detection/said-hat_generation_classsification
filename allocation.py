@@ -17,9 +17,11 @@ import random
 from pathlib import Path
 
 from filtering import filter_source_items
+from wikipedia_quality_filter import filter_source_data
 
 BASE_DIR = Path(__file__).resolve().parent
 ALLOCATIONS_DIR = BASE_DIR / "config" / "mode_allocations"
+LOGS_DIR = BASE_DIR / "logs"
 
 
 def allocate_source_items(source_items: list, mode_config: dict, seed: int) -> dict:
@@ -117,6 +119,17 @@ def get_or_create_allocation(domain: str, config: dict) -> dict:
     seed = config.get("seed", 42)
 
     df = load_source_data(BASE_DIR / domain_cfg["source_file"], domain=domain)
+
+    if domain == "wikipedia":
+        # Drop category-only stubs, disambiguation pages, etc. before any shuffling
+        # happens — see wikipedia_quality_filter.py for what motivated this and why.
+        min_words = domain_cfg.get("min_words", 100)
+        clean_df, rejected_df = filter_source_data(df, min_words=min_words)
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        rejected_df.to_csv(LOGS_DIR / "rejected_sources_wikipedia.csv", index=False, encoding="utf-8-sig")
+        print(f"{len(clean_df)} of {len(df)} Wikipedia source rows passed quality filtering.")
+        df = clean_df
+
     source_items = df.to_dict("records")
     source_items = filter_source_items(source_items, domain)  # currently a no-op, see filtering.py TODO
 

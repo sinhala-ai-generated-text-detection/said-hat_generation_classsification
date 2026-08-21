@@ -57,6 +57,8 @@ domains:
   wikipedia:
     source_file: source_data/wikipedia-monthly/wikipedia.parquet
     target_count: 500
+    min_words: 100  # source-quality floor for wikipedia_quality_filter.py; Wikipedia articles need more
+                     # substance than shorter domains like social_media or qa, which don't set this
     modes:
       mode_a:            # title -> full article (open-ended)
         count: 300
