@@ -1,7 +1,7 @@
-boto3
 pandas
 pyyaml
 python-dotenv
 tqdm
 pyarrow
 openpyxl
+requests

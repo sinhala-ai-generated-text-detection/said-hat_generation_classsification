@@ -1,9 +1,9 @@
 # SinhalaAIDetection — AI text generation pipeline
 
 Generates Sinhala AI text samples across 4 domains (`news`, `wikipedia`, `social_media`, `qa`)
-using 3 models via [Amazon Bedrock](https://aws.amazon.com/bedrock/), to build a Sinhala
-AI-vs-human text detection dataset. Each domain x model combination is run independently by
-one team member.
+using models served via [OpenRouter](https://openrouter.ai/), to build a Sinhala AI-vs-human
+text detection dataset. Each domain x model combination is run independently by one team
+member.
 
 ## Setup
 
@@ -13,20 +13,15 @@ one team member.
    pip install -r requirements.txt
    ```
 
-2. Copy `.env.example` to `.env` and add your AWS credentials:
+2. Copy `.env.example` to `.env` and add your OpenRouter API key:
 
    ```
    cp .env.example .env
    # then edit .env and set:
-   #   AWS_ACCESS_KEY_ID=...
-   #   AWS_SECRET_ACCESS_KEY=...
-   #   AWS_REGION=us-east-1   (a region where your account has Bedrock model access)
+   #   OPENROUTER_API_KEY=...
    ```
 
-   Already using an AWS profile or SSO? Leave the keys unset — boto3 falls back to its
-   default credential chain (profile, IAM role, etc.). Either way, the account/role needs
-   `bedrock:InvokeModel` permission, and each model must be individually enabled for it in
-   the [Bedrock model access console](https://console.aws.amazon.com/bedrock/home#/modelaccess).
+   Get a key at [openrouter.ai/keys](https://openrouter.ai/keys).
 
 3. Add your source data files to `source_data/` — see `config/generation_config.yaml` for the
    expected filename per domain. `.csv`, `.json`, and `.parquet` are all supported.
@@ -73,16 +68,12 @@ acceptable.
 ## Running generation
 
 ```
-python generate.py --domain news --model gemma-4-31b-it
+python generate.py --domain news --model gemini-2.5-pro
 ```
 
 - `--domain` — one of `news`, `wikipedia`, `social_media`, `qa` (from `generation_config.yaml`)
-- `--model` — one of `gpt-4o`, `gemma-4-31b-it`, `claude-sonnet-5` (short names from the config)
-
-Each model's `model_id` in `config/generation_config.yaml` must be a real Bedrock model ID
-(or cross-region inference profile ID) enabled for your AWS account — `generate.py` and
-`run_pilot.py` both fail fast (or skip, for the pilot) on the `TODO_BEDROCK_MODEL_ID`
-placeholders until those are filled in.
+- `--model` — one of `gemini-2.5-pro`, `deepseek-chat`, `mistral-nemo` (short names from
+  the config, mapped to their OpenRouter model slugs)
 
 Output is written incrementally to `outputs/{domain}__{model}.jsonl`, one JSON record per
 line, flushed after every successful API call. Progress is also logged to
@@ -98,7 +89,7 @@ track where you left off manually, and no risk of re-billing finished items.
 
 The script prints a running estimated cost (from a hardcoded per-token pricing table in
 `generate.py`) as it goes, plus a total at the end. These are approximate — check
-https://aws.amazon.com/bedrock/pricing/ for current rates if you need exact figures.
+https://openrouter.ai/models for current rates if you need exact figures.
 
 ## After everyone's done
 

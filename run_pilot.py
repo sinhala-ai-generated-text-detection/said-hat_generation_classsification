@@ -28,7 +28,7 @@ from generate import (
     build_prompt,
     call_model,
     estimate_cost,
-    get_bedrock_client,
+    get_openrouter_session,
     load_config,
     load_source_data,
 )
@@ -67,16 +67,16 @@ def filled_variants(config, domain):
 
 
 def filled_models(config):
-    """(model_short, model_id) for every model whose model_id isn't still a Bedrock
-    TODO placeholder, plus a count of models skipped for that reason."""
+    """(model_short, model_id) for every model whose model_id isn't still a TODO
+    placeholder, plus a count of models skipped for that reason."""
     filled = []
     skipped = 0
-    for model_short, model_cfg in config["models"].items():
-        if "TODO" in model_cfg["model_id"]:
+    for model_short, model_id in config["models"].items():
+        if "TODO" in model_id:
             print(f"SKIP model {model_short}: model_id still a TODO")
             skipped += 1
             continue
-        filled.append((model_short, model_cfg["model_id"]))
+        filled.append((model_short, model_id))
     return filled, skipped
 
 
@@ -86,8 +86,8 @@ def run_pilot(config, samples_per_domain, only_domain=None, seed=None):
     domains = [only_domain] if only_domain else list(config["domains"])
 
     rng = random.Random(seed) if seed is not None else random.Random()
-    client = get_bedrock_client(config)  # every model calls the same Bedrock endpoint
     models, models_skipped = filled_models(config)
+    session = get_openrouter_session()  # shared across every model, reused per call
 
     total_cost = 0.0
     calls_made = 0
@@ -109,7 +109,7 @@ def run_pilot(config, samples_per_domain, only_domain=None, seed=None):
 
                 for model_short, model_id in models:
                     try:
-                        text, in_tok, out_tok = call_model(client, model_id, prompt)
+                        text, in_tok, out_tok = call_model(session, model_id, prompt)
                     except Exception as e:
                         pbar.write(f"  FAILED {domain}/{mode}/v{variant_index}/{model_short}/{source_id}: {e}")
                         pbar.update(1)
