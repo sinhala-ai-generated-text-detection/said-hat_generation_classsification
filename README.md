@@ -72,7 +72,7 @@ python generate.py --domain news --model gemini-2.5-pro
 ```
 
 - `--domain` — one of `news`, `wikipedia`, `social_media`, `qa` (from `generation_config.yaml`)
-- `--model` — one of `gemini-2.5-pro`, `deepseek-chat`, `mistral-nemo` (short names from
+- `--model` — one of `gemini-2.5-pro`, `deepseek-v3`, `gpt-4o` (short names from
   the config, mapped to their OpenRouter model slugs)
 
 Output is written incrementally to `outputs/{domain}__{model}.jsonl`, one JSON record per

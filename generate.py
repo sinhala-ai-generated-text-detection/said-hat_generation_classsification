@@ -10,7 +10,6 @@ in the output JSONL are skipped, so a killed run just picks up where it left off
 
 import argparse
 import csv
-import fcntl
 import json
 import os
 import sys
@@ -23,7 +22,27 @@ import yaml
 from dotenv import load_dotenv
 from tqdm import tqdm
 
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock_progress_file(f):
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock_progress_file(f):
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_progress_file(f):
+        fcntl.flock(f, fcntl.LOCK_EX)
+
+    def _unlock_progress_file(f):
+        fcntl.flock(f, fcntl.LOCK_UN)
+
 from allocation import get_or_create_allocation
+from wikipedia_quality_filter import word_count
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config" / "generation_config.yaml"
@@ -37,6 +56,11 @@ OPENROUTER_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 PLACEHOLDER_KEYS = ["title", "human_text", "caption", "question", "human_answer", "human_prefix"]
 
+# Fallback target word count for the rare mode_a item whose paired human reference field
+# is empty/missing — see compute_target_word_range().
+DEFAULT_TARGET_WORD_COUNT = 200
+TARGET_WORD_COUNT_MARGIN = 0.2  # +/-20% band around the human reference's word count
+
 # Some source files use column names that don't match PLACEHOLDER_KEYS (e.g. the q&a
 # xlsx uses "Questions"/"Human Answer"). Map raw column -> placeholder key per domain
 # so build_prompt's item.get(k, "") lookups don't silently come back empty.
@@ -49,11 +73,11 @@ COLUMN_RENAMES = {
 PROGRESS_FIELDS = ["domain", "model", "completed_count", "target_count", "status", "last_updated"]
 
 # Approximate USD-per-token pricing (input, output), per https://openrouter.ai/models as of
-# 2026-08-26 — check there for current rates before trusting these for real billing.
+# 2026-08-28 — check there for current rates before trusting these for real billing.
 PRICING = {
     "gemini-2.5-pro": {"input": 0.00000125, "output": 0.00001},
-    "deepseek-chat": {"input": 0.00000026, "output": 0.00000103},
-    "gemma-4-31b": {"input": 0.00000009, "output": 0.00000034},
+    "deepseek-v3": {"input": 0.0000002574, "output": 0.000001029},
+    "gpt-4o": {"input": 0.0000025, "output": 0.00001},
 }
 
 
@@ -190,8 +214,30 @@ def append_result(output_path, record):
 # Prompting / API
 # --------------------------------------------------------------------------- #
 
+def compute_target_word_range(item, margin=TARGET_WORD_COUNT_MARGIN):
+    """A +/-`margin` word-count band around the item's paired human reference
+    (human_text/human_answer/caption — whichever is present), for mode_a prompts.
+
+    mode_a items don't otherwise see the reference content (that's the point — it's
+    open-ended generation from just a title/question), but the source row's other
+    column is still carried on `item` alongside title/question. Using its length to
+    set a per-item target — instead of one fixed word range for every item — keeps
+    AI output length distributed like human text instead of systematically longer,
+    which would otherwise hand a classification model trained on this data a trivial
+    length shortcut instead of a real stylistic one.
+    """
+    reference = item.get("human_text") or item.get("human_answer") or item.get("caption") or ""
+    target = word_count(reference) or DEFAULT_TARGET_WORD_COUNT
+    low = max(20, round(target * (1 - margin)))
+    high = round(target * (1 + margin))
+    return low, high
+
+
 def build_prompt(template, item):
     values = {k: str(item.get(k, "")) for k in PLACEHOLDER_KEYS}
+    low, high = compute_target_word_range(item)
+    values["min_word_count"] = str(low)
+    values["max_word_count"] = str(high)
     return template.format(**values)
 
 
@@ -262,7 +308,7 @@ def update_progress(domain, model, completed_count, target_count, status):
     PROGRESS_LOCK.touch(exist_ok=True)
 
     with open(PROGRESS_LOCK, "w") as lock_f:
-        fcntl.flock(lock_f, fcntl.LOCK_EX)
+        _lock_progress_file(lock_f)
         try:
             rows = _read_progress_rows()
             match = next((r for r in rows if r["domain"] == domain and r["model"] == model), None)
@@ -286,7 +332,7 @@ def update_progress(domain, model, completed_count, target_count, status):
                 writer.writerows(rows)
             tmp_path.replace(PROGRESS_CSV)  # atomic rename on the same filesystem
         finally:
-            fcntl.flock(lock_f, fcntl.LOCK_UN)
+            _unlock_progress_file(lock_f)
 
 
 # --------------------------------------------------------------------------- #
