@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Merge all per-domain/model JSONL outputs into a single validated dataset.
+"""Merge per-domain/model JSONL outputs into one validated dataset per domain.
 
 Run once, after every team member's claimed domain x model combination is complete:
 
     python merge_outputs.py
+
+Produces outputs/merged_<domain>.jsonl for each domain present (e.g.
+merged_news.jsonl, merged_social_media.jsonl) rather than one combined file, since
+each domain is its own dataset.
 """
 
 import json
@@ -14,7 +18,6 @@ import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUTS_DIR = BASE_DIR / "outputs"
-MERGED_PATH = OUTPUTS_DIR / "merged_dataset.jsonl"
 
 REQUIRED_FIELDS = [
     "text_id", "text", "label", "generator", "domain",
@@ -23,8 +26,21 @@ REQUIRED_FIELDS = [
 ]
 
 
+def merged_path_for(domain):
+    return OUTPUTS_DIR / f"merged_{domain}.jsonl"
+
+
 def find_jsonl_files():
-    return sorted(p for p in OUTPUTS_DIR.glob("*.jsonl") if p.name != MERGED_PATH.name)
+    # Skip our own derived outputs, not just merged_*: human_<domain>.jsonl (built by
+    # build_human_datasets.py from a *previous* merged_<domain>.jsonl) is label=0 human
+    # rows in the same schema as a raw {domain}__{model}.jsonl file — without this
+    # exclusion it would get swept back in here and merged into merged_<domain>.jsonl
+    # alongside the AI rows, contradicting this module's own docstring ("merged_<domain>
+    # .jsonl only has AI text, never human text").
+    return sorted(
+        p for p in OUTPUTS_DIR.glob("*.jsonl")
+        if not p.name.startswith("merged_") and not p.name.startswith("human_")
+    )
 
 
 def load_and_validate(path):
@@ -53,14 +69,14 @@ def load_and_validate(path):
 
 
 def summarize(records):
-    counts = Counter((r["domain"], r["generator"], r["generation_mode"]) for r in records)
-    rows = [{"domain": d, "model": m, "mode": mo, "count": c} for (d, m, mo), c in counts.items()]
+    counts = Counter((r["generator"], r["generation_mode"]) for r in records)
+    rows = [{"model": m, "mode": mo, "count": c} for (m, mo), c in counts.items()]
     if not rows:
         print("No records to summarize.")
         return
     df = pd.DataFrame(rows)
-    pivot = df.pivot_table(index=["domain", "mode"], columns="model", values="count", fill_value=0)
-    print("\n=== domain x model x mode counts (gaps show up as 0 or missing columns) ===")
+    pivot = df.pivot_table(index="mode", columns="model", values="count", fill_value=0)
+    print("\n=== model x mode counts (gaps show up as 0 or missing columns) ===")
     print(pivot.to_string())
 
 
@@ -88,21 +104,27 @@ def main():
         print(f"No .jsonl files found in {OUTPUTS_DIR}")
         return
 
-    all_valid = []
+    by_domain = defaultdict(list)
     total_invalid = 0
     for path in files:
         valid, invalid = load_and_validate(path)
         print(f"{path.name}: {len(valid)} valid, {invalid} invalid")
-        all_valid.extend(valid)
+        for rec in valid:
+            by_domain[rec["domain"]].append(rec)
         total_invalid += invalid
 
-    with open(MERGED_PATH, "w", encoding="utf-8") as f:
-        for rec in all_valid:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    for domain in sorted(by_domain):
+        records = by_domain[domain]
+        merged_path = merged_path_for(domain)
+        with open(merged_path, "w", encoding="utf-8") as f:
+            for rec in records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    print(f"\nMerged {len(all_valid)} records ({total_invalid} invalid skipped) -> {MERGED_PATH}")
-    summarize(all_valid)
-    flag_duplicates(all_valid)
+        print(f"\n=== domain={domain}: merged {len(records)} records -> {merged_path} ===")
+        summarize(records)
+        flag_duplicates(records)
+
+    print(f"\n{total_invalid} invalid record(s) skipped across all files.")
 
 
 if __name__ == "__main__":

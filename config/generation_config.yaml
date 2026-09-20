@@ -30,18 +30,27 @@ models:
   deepseek-v3: deepseek/deepseek-chat
   gpt-4o: openai/gpt-4o
 
-# target_count is the domain-wide total (500). Each mode's "count" below is the number
-# of unique source items sampled for that mode; the counts under a domain must sum to
-# that domain's target_count — generate.py and run_pilot.py should assert this on
-# startup and fail loudly if a config edit breaks the sum.
+# samples_per_model is how many of this domain's source items EACH model draws. The three
+# models draw disjoint (non-overlapping) slices of the shuffled source pool, so
+# total_source_items (= samples_per_model x number of models) must be available in the
+# source file after filtering — allocation.py asserts this and fails loudly otherwise.
+# total_source_items is documentation/an assertion target, not read for slicing itself.
+#
+# Each mode's "count" below is the number of unique source items sampled for that mode,
+# per model; the counts under a domain must sum to that domain's samples_per_model —
+# generate.py and run_pilot.py should assert this on startup and fail loudly if a config
+# edit breaks the sum.
 #
 # "num_variants" must equal the number of prompt strings listed for that mode in the
 # prompts section below — generate.py asserts this too, so an edit to one without the
 # other fails fast instead of silently using the wrong variant count.
 domains:
   news:
-    source_file: source_data/nsina/nsina.json
-    target_count: 500
+    source_file: source_data/nsina/news.json
+    total_source_items: 1500
+    samples_per_model: 500
+    min_words: 40  # source-quality floor for filtering.py — also gates the
+                    # encoding-corruption/insufficient-Sinhala checks; see filtering.py
     modes:
       mode_a:            # title -> full article (open-ended)
         count: 200
@@ -51,10 +60,17 @@ domains:
         num_variants: 2
 
   wikipedia:
-    source_file: source_data/wikipedia-monthly/wikipedia.parquet
-    target_count: 500
+    # wikipedia_dated.parquet = wikipedia.parquet + created_date/last_modified_date,
+    # fetched from the MediaWiki API by build_wikipedia_dated_dataset.py (the raw dump
+    # carries no timestamps at all). Needed for max_date below.
+    source_file: source_data/wikipedia-monthly/wikipedia_dated.parquet
+    total_source_items: 1500
+    samples_per_model: 500
     min_words: 100  # source-quality floor for wikipedia_quality_filter.py; Wikipedia articles need more
-                     # substance than shorter domains like social_media or qa, which don't set this
+                     # substance than shorter domains like social_media, which doesn't set this
+    max_date: "2022-11-30"  # ChatGPT's public launch — only use articles created AND last-edited
+                             # before this, so the "human" side of the dataset predates mass
+                             # LLM-assisted editing. See GPT_ERA_CUTOFF in wikipedia_quality_filter.py.
     modes:
       mode_a:            # title -> full article (open-ended)
         count: 200
@@ -65,21 +81,13 @@ domains:
 
   social_media:
     source_file: source_data/facebookdecadecorpora/facebook.csv
-    target_count: 500
+    total_source_items: 1500
+    samples_per_model: 500
+    min_words: 15  # source-quality floor for filtering.py — also gates the
+                    # encoding-corruption/insufficient-Sinhala checks; see filtering.py
     modes:
       mode_b:             # paraphrase of caption — only mode used, no title field to condition on
         count: 500
-        num_variants: 2
-
-  qa:
-    source_file: source_data/q&a/q&a.xlsx
-    target_count: 500
-    modes:
-      mode_a:            # answer the question cold, no reference answer given
-        count: 200
-        num_variants: 2
-      mode_b:             # rephrase the known human_answer in a different style
-        count: 300
         num_variants: 2
 
 # Prompt templates, nested by domain then mode. Each mode holds a LIST of variant
@@ -89,7 +97,7 @@ domains:
 # mode, move it to index 0 here.
 #
 # Available placeholders (use only the ones relevant to each mode):
-#   {title} {human_text} {caption} {question} {human_answer}
+#   {title} {human_text} {caption} {human_prefix} {min_word_count} {max_word_count}
 prompts:
   news:
     mode_a:
@@ -111,10 +119,3 @@ prompts:
     mode_b:
       - "පහත සමාජ මාධ්‍ය සටහන එහි අර්ථය හා දළ දිග ආසන්න වශයෙන් පවත්වාගෙන, වෙනස් වචනවලින් නැවත ලියන්න. සටහන කෙටි වුවද, එය ප්‍රතික්ෂේප නොකර හෝ අමතර විස්තර/අර්ථයන් එකතු නොකර, එහිම කෙටි බව පවත්වාගෙන නැවත ලියන්න. සටහන අවිධිමත් හෝ කථන-ශෛලියේ වුවද, එය ඒ අයුරින්ම පාහේ පිටපත් නොකරන්න — වචන තේරීම හා වාක්‍ය ව්‍යුහය සැලකිය යුතු ලෙස වෙනස් කරමින්, සැබවින්ම නැවත ලියන්න, සුළු වෙනස්කම් කිහිපයක් පමණක් නොකරන්න. එකම එක් version එකක් පමණක් ලියන්න — විකල්ප කිහිපයක්, විවිධ ශෛලීන්, හෝ ඔබ තෝරාගැනීමට ඉඩ දෙන පිළිතුරු කිසිවක් ලබා නොදෙන්න. එහි සඳහන් සියලුම නම්, ස්ථාන, දිනයන්, හෑෂ්ටැග්, හෝ සංඛ්‍යා නිවැරදිව හා නොවෙනස්ව රඳවා ගන්න. සමාජ මාධ්‍ය සටහනකට ගැලපෙන අවිධිමත් ස්වරය පවත්වාගන්න. සම්පූර්ණයෙන්ම සිංහල භාෂාවෙන් ලියන්න — වෙනත් භාෂාවක වචන මිශ්‍ර නොකරන්න, විකෘත හෝ තේරුම්ගත නොහැකි වචන භාවිත නොකරන්න. Markdown හෝ ආකෘතිකරණ සලකුණු කිසිවක් භාවිත නොකරන්න — මාතෘකා, තද අකුරු, ඇල අකුරු, ලැයිස්තු, උධෘත සලකුණු, තිරස් රේඛා, කේත කොටස්, හෝ සබැඳි ඇතුළුව. නැවත ලියූ සටහන පමණක්, කිසිදු අමතර වචනයකින් තොරව ලියන්න: {caption}"
       - "මේ සටහන වෙනත් කෙනෙක් ලියනවා වගේ, එහි අර්ථය හා දළ දිග වෙනස් නොකර වචන වෙනස් කරලා නැවත ලියන්න. සටහන කෙටි වුවද, එය ප්‍රතික්ෂේප නොකර හෝ අමතර විස්තර/අර්ථයන් එකතු නොකර, එහිම කෙටි බව පවත්වාගෙන නැවත ලියන්න. සටහන අවිධිමත් හෝ කථන-ශෛලියේ වුවද, එය ඒ අයුරින්ම පාහේ පිටපත් නොකරන්න — වචන තේරීම හා වාක්‍ය ව්‍යුහය සැලකිය යුතු ලෙස වෙනස් කරමින්, සැබවින්ම වෙනත් කෙනෙක් ලියනවා වගේ නැවත ලියන්න, සුළු වෙනස්කම් කිහිපයක් පමණක් නොකරන්න. එකම එක් version එකක් පමණක් ලියන්න — විකල්ප කිහිපයක් හෝ පැහැදිලි කිරීම් ලබා නොදෙන්න. එහි සඳහන් සියලුම නම්, ස්ථාන, දිනයන්, හෑෂ්ටැග්, හෝ සංඛ්‍යා නිවැරදිව හා නොවෙනස්ව රඳවා ගන්න. සමාජ මාධ්‍ය සටහනකට ගැලපෙන අවිධිමත් ස්වරය පවත්වාගන්න. සම්පූර්ණයෙන්ම සිංහල භාෂාවෙන් ලියන්න — වෙනත් භාෂාවක වචන මිශ්‍ර නොකරන්න, විකෘත හෝ තේරුම්ගත නොහැකි වචන භාවිත නොකරන්න. Markdown හෝ ආකෘතිකරණ සලකුණු කිසිවක් භාවිත නොකරන්න — නැවත ලියූ සටහන පමණක් ලියන්න: {caption}"
-  qa:
-    mode_a:
-      - "පහත ප්‍රශ්නයට වචන {min_word_count}ත් {max_word_count}ත් අතර දිගකින් පිළිතුරු දෙන්න: {question}"
-      - "{question} — මේ ගැන ඔබේ දැනුමෙන් වචන {min_word_count}ත් {max_word_count}ත් අතර දිගකින් විස්තර කරන්න."
-    mode_b:
-      - "පහත පිළිතුර එහි අර්ථය වෙනස් නොකර, වෙනස් වචනවලින් නැවත ලියන්න: {human_answer}"
-      - "පහත පිළිතුර වඩාත් විස්තරාත්මකව, වෙනස් වචනවලින් ලියන්න: {human_answer}"
