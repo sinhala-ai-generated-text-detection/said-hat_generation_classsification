@@ -1,0 +1,4 @@
+generator,n,sentence_ratio_mean,sentence_ratio_median,sentence_ratio_std,word_ratio_mean,word_ratio_median
+deepseek-v3,1097,1.2247,1.0,1.6276,0.999,1.0
+gemini-2.5-pro,1100,1.161,1.0,0.9229,1.0125,1.0
+gpt-4o,1100,1.0944,1.0,0.9328,0.8213,0.8635

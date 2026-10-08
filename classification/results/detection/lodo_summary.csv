@@ -1,0 +1,13 @@
+Model,held_out,lr,holdout_f1,indist_same_slice,drop,threshold,real
+XLM-R base,news,2e-05,0.7547,0.9362,0.1815,0.0171,yes
+XLM-R base,social_media,2e-05,0.3587,0.8675,0.5088,0.0408,yes
+XLM-R base,wikipedia,2e-05,0.8244,0.9175,0.0931,0.0198,yes
+SinhalaBERTo,news,2e-05,0.7469,0.8803,0.1334,0.0084,yes
+SinhalaBERTo,social_media,2e-05,0.4005,0.8749,0.4744,0.0174,yes
+SinhalaBERTo,wikipedia,2e-05,0.7412,0.8675,0.1263,0.0177,yes
+LaBSE,news,3e-05,0.8176,0.9094,0.0918,0.0205,yes
+LaBSE,social_media,3e-05,0.4527,0.7966,0.344,0.0355,yes
+LaBSE,wikipedia,3e-05,0.8335,0.9093,0.0758,0.0246,yes
+SinBERT-large,news,3e-05,0.7096,0.9128,0.2032,0.0195,yes
+SinBERT-large,social_media,3e-05,0.5128,0.8815,0.3686,0.0067,yes
+SinBERT-large,wikipedia,3e-05,0.7771,0.8747,0.0976,0.015,yes

@@ -1,0 +1,13 @@
+# Versions from the environment the published results were produced in.
+torch==2.14.0
+transformers==5.17.0
+accelerate==1.15.0
+datasets==5.0.1
+scikit-learn==1.9.1
+scipy==1.18.1
+numpy==2.5.3
+pandas==3.0.6
+pyarrow==25.0.1
+matplotlib==3.11.2
+tabulate==0.10.0
+bert-score==0.3.13

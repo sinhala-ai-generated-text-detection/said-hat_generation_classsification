@@ -1,0 +1,13 @@
+Model,held_out_generator,lr,holdout_f1,indist_same_slice,drop,threshold,real
+LaBSE,deepseek-v3,3e-05,0.8058,0.8486,0.0429,0.0244,yes
+LaBSE,gemini-2.5-pro,3e-05,0.8545,0.8901,0.0356,0.0206,yes
+LaBSE,gpt-4o,3e-05,0.786,0.8733,0.0872,0.0317,yes
+SinBERT-large,deepseek-v3,3e-05,0.8059,0.8567,0.0508,0.0197,yes
+SinBERT-large,gemini-2.5-pro,3e-05,0.8912,0.9234,0.0321,0.0355,noise
+SinBERT-large,gpt-4o,3e-05,0.8373,0.8902,0.0529,0.0152,yes
+SinhalaBERTo,deepseek-v3,2e-05,0.7983,0.8429,0.0446,0.0152,yes
+SinhalaBERTo,gemini-2.5-pro,2e-05,0.8733,0.9021,0.0288,0.021,yes
+SinhalaBERTo,gpt-4o,2e-05,0.849,0.8767,0.0277,0.0121,yes
+XLM-R base,deepseek-v3,2e-05,0.8051,0.8657,0.0606,0.0202,yes
+XLM-R base,gemini-2.5-pro,2e-05,0.909,0.937,0.028,0.017,yes
+XLM-R base,gpt-4o,2e-05,0.8413,0.9156,0.0743,0.0281,yes

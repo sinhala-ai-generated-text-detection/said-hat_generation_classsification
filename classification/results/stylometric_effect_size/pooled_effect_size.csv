@@ -1,0 +1,15 @@
+feature,cohens_d_ai_minus_human,cohens_d_human_minus_ai,n_ai,n_human
+ttr,0.3067,-0.3067,4497,4497
+mattr,0.3259,-0.3259,4497,4497
+stem_ttr,0.2938,-0.2938,4497,4497
+herdan_c,0.3107,-0.3107,4497,4497
+ttr_inflation,0.2301,-0.2301,4497,4497
+bigram_diversity,0.3519,-0.3519,4497,4497
+trigram_diversity,0.2877,-0.2877,4497,4497
+avg_word_length,0.0053,-0.0053,4497,4497
+avg_sentence_length,-0.0164,0.0164,4497,4497
+sentence_length_sd,-0.2981,0.2981,4497,4497
+punct_density,-0.022,0.022,4497,4497
+fertility,-0.38,0.38,4497,4497
+doc_len_words,-0.2343,0.2343,4497,4497
+doc_len_chars,-0.2449,0.2449,4497,4497

@@ -1,0 +1,4 @@
+Model,held_out,lr,dev_macro_f1,test_macro_f1
+XLM-R base,wikipedia,2e-05,0.91,0.8475
+XLM-R base,wikipedia,3e-05,0.8986,0.8507
+XLM-R base,wikipedia,5e-05,0.7418,0.8291

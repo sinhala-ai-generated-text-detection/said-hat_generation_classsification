@@ -1,0 +1,5 @@
+Model,n_train_full,n_train_control,indist_full_mean_3seeds,indist_full_seed42,size_control_seed42,cost_of_less_data_vs_mean,mean_LODO_holdout_f1,mean_LODO_drop_vs_full
+LaBSE,6294,4500,0.8713,0.8741,0.8659,0.0054,0.7013,0.17
+SinBERT-large,6294,4500,0.8908,0.8911,0.8807,0.0101,0.6665,0.2243
+SinhalaBERTo,6294,4500,0.8747,0.874,0.8511,0.0236,0.6295,0.2452
+XLM-R base,6294,4500,0.9074,0.914,0.8918,0.0156,0.6459,0.2615

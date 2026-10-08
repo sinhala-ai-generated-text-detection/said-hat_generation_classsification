@@ -1,0 +1,7 @@
+text,feature_set,n_features,dev_roc_auc,test_roc_auc,test_macro_f1,test_accuracy
+raw,core_14,14,0.763,0.7226,0.6567,0.657
+raw,full_15,15,0.7766,0.7318,0.6723,0.6726
+raw,reduced_11,11,0.6986,0.6749,0.632,0.6326
+normalized,core_14,14,0.7569,0.7119,0.6536,0.6541
+normalized,full_15,15,0.7759,0.7261,0.6604,0.6607
+normalized,reduced_11,11,0.701,0.6775,0.6334,0.6341

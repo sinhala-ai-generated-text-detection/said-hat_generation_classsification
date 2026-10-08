@@ -1,0 +1,22 @@
+{
+  "XLM-R base": {
+    "news": 512,
+    "social_media": 256,
+    "wikipedia": 512
+  },
+  "SinhalaBERTo": {
+    "news": 512,
+    "social_media": 384,
+    "wikipedia": 512
+  },
+  "LaBSE": {
+    "news": 512,
+    "social_media": 256,
+    "wikipedia": 512
+  },
+  "SinBERT-large": {
+    "news": 512,
+    "social_media": 384,
+    "wikipedia": 512
+  }
+}

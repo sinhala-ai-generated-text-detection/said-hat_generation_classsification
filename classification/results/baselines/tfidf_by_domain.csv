@@ -1,0 +1,13 @@
+text,features,domain,test_macro_f1
+raw,word_1_2,news,0.9074
+raw,word_1_2,social_media,0.8004
+raw,word_1_2,wikipedia,0.9117
+raw,char_2_5,news,0.8889
+raw,char_2_5,social_media,0.8452
+raw,char_2_5,wikipedia,0.8774
+normalized,word_1_2,news,0.9012
+normalized,word_1_2,social_media,0.8054
+normalized,word_1_2,wikipedia,0.9117
+normalized,char_2_5,news,0.8889
+normalized,char_2_5,social_media,0.8452
+normalized,char_2_5,wikipedia,0.8921

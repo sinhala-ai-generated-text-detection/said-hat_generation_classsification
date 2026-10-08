@@ -29,3 +29,7 @@ generation/logs/*
 .DS_Store
 .vscode/
 .idea/
+
+# Classification: the normalized corpus is rebuilt from the Hugging Face dataset by
+# scripts/01_build_corpus.py
+classification/results/corpus/

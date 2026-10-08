@@ -1,0 +1,4 @@
+generator,n,labse_cosine_mean,labse_cosine_std,bertscore_f1_mean,bertscore_f1_std
+deepseek-v3,1097,0.9534,0.0461,0.9259,0.0349
+gemini-2.5-pro,1100,0.9489,0.0424,0.9119,0.0254
+gpt-4o,1100,0.9393,0.0431,0.9031,0.0307

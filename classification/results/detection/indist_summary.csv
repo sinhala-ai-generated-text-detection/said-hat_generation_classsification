@@ -1,0 +1,5 @@
+Model,lr,n_seeds,test_macro_f1_mean,seed_std,ci95_low,ci95_high,dev_macro_f1_mean
+XLM-R base,2e-05,3,0.9074,0.0085,0.8945,0.9197,0.9104
+SinhalaBERTo,2e-05,3,0.8747,0.0007,0.8596,0.8893,0.8819
+LaBSE,3e-05,3,0.8713,0.0103,0.8558,0.8861,0.8807
+SinBERT-large,3e-05,3,0.8908,0.0033,0.8765,0.9042,0.8997

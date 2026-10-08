@@ -1,0 +1,10 @@
+domain,generator,n,labse_cosine_mean,labse_cosine_std,bertscore_f1_mean,bertscore_f1_std
+news,deepseek-v3,297,0.9809,0.0214,0.949,0.029
+news,gemini-2.5-pro,300,0.9773,0.0164,0.9342,0.0208
+news,gpt-4o,300,0.9634,0.0277,0.9225,0.0308
+social_media,deepseek-v3,500,0.9231,0.0476,0.9068,0.0258
+social_media,gemini-2.5-pro,500,0.9218,0.0452,0.9022,0.0225
+social_media,gpt-4o,500,0.9213,0.0451,0.9004,0.0266
+wikipedia,deepseek-v3,300,0.9766,0.027,0.9346,0.036
+wikipedia,gemini-2.5-pro,300,0.9658,0.0244,0.9057,0.0203
+wikipedia,gpt-4o,300,0.9453,0.0386,0.8883,0.0272

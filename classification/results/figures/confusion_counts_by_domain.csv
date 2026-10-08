@@ -1,0 +1,13 @@
+Model,domain,true_human_pred_human,true_human_pred_AI,true_AI_pred_human,true_AI_pred_AI
+XLM-R base,news,221.33,21.67,9.33,233.67
+XLM-R base,social_media,190.33,37.67,22.67,205.33
+XLM-R base,wikipedia,189.0,15.0,18.67,185.33
+SinhalaBERTo,news,206.67,36.33,21.67,221.33
+SinhalaBERTo,social_media,205.67,22.33,34.67,193.33
+SinhalaBERTo,wikipedia,172.0,32.0,22.0,182.0
+LaBSE,news,225.0,18.0,26.0,217.0
+LaBSE,social_media,186.0,42.0,50.67,177.33
+LaBSE,wikipedia,188.67,15.33,21.67,182.33
+SinBERT-large,news,218.0,25.0,17.33,225.67
+SinBERT-large,social_media,207.67,20.33,33.67,194.33
+SinBERT-large,wikipedia,169.67,34.33,16.67,187.33

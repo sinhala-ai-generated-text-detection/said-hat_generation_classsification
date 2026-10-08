@@ -1,0 +1,5 @@
+Model,n_seeds,true_human_pred_human,true_human_pred_AI,true_AI_pred_human,true_AI_pred_AI
+XLM-R base,3,600.67,74.33,50.67,624.33
+SinhalaBERTo,3,584.33,90.67,78.33,596.67
+LaBSE,3,599.67,75.33,98.33,576.67
+SinBERT-large,3,595.33,79.67,67.67,607.33

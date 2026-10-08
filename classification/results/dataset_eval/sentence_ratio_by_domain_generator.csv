@@ -1,0 +1,10 @@
+domain,generator,n,sentence_ratio_mean,sentence_ratio_median,sentence_ratio_std,word_ratio_mean,word_ratio_median
+news,deepseek-v3,297,1.6129,1.0,1.9678,0.9171,0.9723
+news,gemini-2.5-pro,300,1.5004,1.0,1.3576,0.9584,0.9906
+news,gpt-4o,300,1.5716,1.0,1.4881,0.7908,0.8573
+social_media,deepseek-v3,500,1.0,1.0,0.0,1.0644,1.0345
+social_media,gemini-2.5-pro,500,1.0,1.0,0.0,0.9965,1.0
+social_media,gpt-4o,500,1.0,1.0,0.0,0.9181,0.9221
+wikipedia,deepseek-v3,300,1.2149,1.0,2.3755,0.9714,0.9877
+wikipedia,gemini-2.5-pro,300,1.0901,0.9333,1.06,1.0931,1.0415
+wikipedia,gpt-4o,300,0.7745,0.7303,0.7985,0.6904,0.7029

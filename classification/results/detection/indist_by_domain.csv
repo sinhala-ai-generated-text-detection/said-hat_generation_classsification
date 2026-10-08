@@ -1,0 +1,13 @@
+Model,domain,macro_f1_mean,seed_std
+XLM-R base,news,0.9362,0.0041
+XLM-R base,social_media,0.8675,0.0204
+XLM-R base,wikipedia,0.9175,0.0099
+SinhalaBERTo,news,0.8803,0.0042
+SinhalaBERTo,social_media,0.8749,0.0087
+SinhalaBERTo,wikipedia,0.8675,0.0088
+LaBSE,news,0.9094,0.0055
+LaBSE,social_media,0.7966,0.0178
+LaBSE,wikipedia,0.9093,0.0123
+SinBERT-large,news,0.9128,0.0097
+SinBERT-large,social_media,0.8815,0.0021
+SinBERT-large,wikipedia,0.8747,0.0075

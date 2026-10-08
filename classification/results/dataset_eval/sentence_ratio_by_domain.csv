@@ -1,0 +1,4 @@
+domain,n,sentence_ratio_mean,sentence_ratio_median,sentence_ratio_std,word_ratio_mean,word_ratio_median
+news,897,1.5614,1.0,1.6234,0.8887,0.9438
+social_media,1500,1.0,1.0,0.0,0.993,0.9728
+wikipedia,900,1.0265,0.9077,1.5802,0.9183,0.9632

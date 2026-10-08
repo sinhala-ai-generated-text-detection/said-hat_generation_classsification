@@ -1,0 +1,4 @@
+domain,n,labse_cosine_mean,labse_cosine_std,bertscore_f1_mean,bertscore_f1_std
+news,897,0.9738,0.0235,0.9352,0.0293
+social_media,1500,0.9221,0.046,0.9032,0.0251
+wikipedia,900,0.9626,0.0332,0.9096,0.0344
