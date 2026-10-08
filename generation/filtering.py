@@ -37,11 +37,6 @@ def filter_source_items(source_items: list, domain: str, min_words: int = 0) -> 
     its own min_words via wikipedia_quality_filter.filter_source_data() upstream of this
     call, so re-checking it here is a harmless no-op for that domain, not double
     filtering against a different threshold.
-
-    TODO: once run for a domain, delete and regenerate
-    config/mode_allocations/{domain}__{model}.json for every model on that domain (see
-    the TODO in allocation.py's get_or_create_allocation) so the cached allocation
-    reflects the filtered item list rather than the original one.
     """
     field = TEXT_FIELD.get(domain)
     if not field:
